@@ -3955,17 +3955,16 @@ Pillar must be exactly one of: zone2, strength, intensity, mobility, rest`;
             { value:weekHiSess, goal:goals.weeklyHi||2, max:5, color:"#b03020", label:"Intensity", unit:"", prev:weekHiSess2 },
             { value:weekMob, goal:goals.weeklyMob||3, max:7, color:"#6e3fa8", label:"Mobility", unit:"", prev:weekMob2 },
           ].map((g,i) => {
-            const pct = Math.min(1, g.value/(g.max||1));
-            const goalPct = Math.min(1, g.goal/(g.max||1));
+            const atGoal = g.value >= g.goal;
+            // Arc fills relative to goal — full arc = goal achieved. Over-goal = still full.
+            const pct     = Math.min(1, g.value / (g.goal||1));
             const arcSpan = 0.75;
             const r=36, cx=46, cy=46, size=92;
             const circ = 2*Math.PI*r;
-            const dashVal  = pct * arcSpan * circ;
-            const dashGoal = goalPct * arcSpan * circ;
+            const dashVal = pct * arcSpan * circ;
             const diff = g.value - g.prev;
             const up = diff > 0;
             const good = up;
-            const atGoal = g.value >= g.goal;
             return (
               <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:8 }}>
                 <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
@@ -3979,7 +3978,9 @@ Pillar must be exactly one of: zone2, strength, intensity, mobility, rest`;
                   <text x={cx} y={cy-6} textAnchor="middle" style={{fontSize:18,fontWeight:500,fill:"#1a1612",fontFamily:"system-ui"}}>{g.value}</text>
                   <text x={cx} y={cy+7} textAnchor="middle" style={{fontSize:9,fill:"#a89e92",fontFamily:"system-ui"}}>of {g.goal}{g.unit}</text>
                   <text x={cx} y={cy+19} textAnchor="middle" style={{fontSize:9,fill:atGoal?g.color:"#a89e92",fontFamily:"system-ui"}}>
-                    {atGoal ? "✓ goal" : `${Math.round(pct/goalPct*100)}%`}
+                    {atGoal
+                      ? g.value > g.goal ? `✓ +${g.value-g.goal} extra` : "✓ goal"
+                      : `${Math.round(g.value/g.goal*100)}%`}
                   </text>
                 </svg>
                 <div style={{ fontSize:9, color:K.inkFaint, textTransform:"uppercase", letterSpacing:"0.11em", fontWeight:700 }}>{g.label}</div>
@@ -4367,152 +4368,301 @@ function BodyDomainView({ domain, onUpdate, onBack }) {
       )}
       {/* ── SLEEP ────────────────────────────────────────────────────────── */}
       {tab==="sleep" && (
-        <>
+        <div>
           <GoalEditor goals={goals} onChange={saveGoals} fields={[
             {id:"avgSleepHrs",label:"Sleep target (hrs)"},{id:"sleepScore",label:"Score target"},
           ]}/>
 
-          {!lastSleep ? (
-            <div style={{ textAlign:"center", padding:"40px 0", color:K.inkFaint, fontSize:13 }}>
-              No sleep data — sync after wearing your watch overnight
-            </div>
-          ) : (
-            <>
-              {/* Hero card — score + arcs */}
-              <div style={{ ...card, background:"#fafaf8" }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
-                  <div>
-                    <div style={{ fontSize:9, color:K.inkFaint, textTransform:"uppercase", letterSpacing:"0.1em", fontWeight:700, marginBottom:4 }}>
-                      Last night · {lastSleep.date}
-                    </div>
-                    {lastSleep.sleep_feedback && (
-                      <div style={{ fontSize:12, color:K.inkMid, lineHeight:1.4, maxWidth:180 }}>
-                        {lastSleep.sleep_feedback.replace(/_/g," ").toLowerCase()}
-                      </div>
+          {(() => {
+            const sleepDays = daily.filter(d => d.sleep_hrs);
+            const lastSleep = sleepDays[0];
+            const prevSleep = sleepDays[1];
+            if (!lastSleep) return (
+              <div style={{textAlign:"center",padding:"40px 0",color:K.inkFaint,fontSize:13}}>
+                No sleep data — sync after wearing your watch overnight
+              </div>
+            );
+
+            // 7-night averages
+            const s7 = sleepDays.slice(0,7);
+            const avg = (arr, fn) => arr.filter(d=>fn(d)!=null).length ? arr.filter(d=>fn(d)!=null).reduce((s,d)=>s+fn(d),0)/arr.filter(d=>fn(d)!=null).length : null;
+            const avgSleep = avg(s7, d=>d.sleep_hrs);
+            const avgDeepPct = avg(s7.filter(d=>d.sleep_hrs), d=>d.deep_hrs?Math.round(d.deep_hrs/d.sleep_hrs*100):null);
+            const avgRemPct  = avg(s7.filter(d=>d.sleep_hrs), d=>d.rem_hrs?Math.round(d.rem_hrs/d.sleep_hrs*100):null);
+            const avgSpo2    = avg(s7, d=>d.avg_spo2);
+            const avgScore   = avg(s7.filter(d=>d.sleep_score), d=>d.sleep_score);
+            const prevScore  = avg(sleepDays.slice(7,14).filter(d=>d.sleep_score), d=>d.sleep_score);
+
+            const scoreColor = s => s==null?K.inkFaint:s>=75?K.teal:s>=65?K.gold:K.red;
+
+            // Arc helper
+            const Arc = ({value, goal, max, color, label, unit, extra}) => {
+              const pct = Math.min(1, (value||0)/(goal||1));
+              const atGoal = value >= goal;
+              const arcSpan = 0.75;
+              const r=34, cx=43, cy=43, size=86, circ=2*Math.PI*r;
+              const dash = pct * arcSpan * circ;
+              return (
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:7}}>
+                  <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                    <g transform={`rotate(144 ${cx} ${cy})`}>
+                      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e8e2d9" strokeWidth="6" strokeLinecap="round"
+                        strokeDasharray={`${arcSpan*circ} ${circ}`}/>
+                      <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
+                        strokeDasharray={`${dash} ${circ}`}
+                        style={{transition:"stroke-dasharray 0.9s cubic-bezier(.4,0,.2,1)"}}/>
+                    </g>
+                    <text x={cx} y={cy-6} textAnchor="middle" style={{fontSize:16,fontWeight:500,fill:"#1a1612",fontFamily:"system-ui"}}>
+                      {value!=null?(typeof value==="number"&&value%1!==0?value.toFixed(1):Math.round(value)):"—"}
+                    </text>
+                    <text x={cx} y={cy+7} textAnchor="middle" style={{fontSize:8,fill:"#a89e92",fontFamily:"system-ui"}}>
+                      {`of ${goal}${unit}`}
+                    </text>
+                    <text x={cx} y={cy+18} textAnchor="middle" style={{fontSize:8,fill:atGoal?color:"#a89e92",fontFamily:"system-ui"}}>
+                      {atGoal?(value>goal?`✓ +${typeof value==="number"&&value%1!==0?(value-goal).toFixed(1):Math.round(value-goal)}${unit}`:"✓ goal"):`${Math.round(pct*100)}%`}
+                    </text>
+                  </svg>
+                  <div style={{fontSize:9,color:K.inkFaint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>{label}</div>
+                  {extra}
+                </div>
+              );
+            };
+
+            // Build SVG sleep window chart
+            const W=380, H=220, mL=42, mR=8, mT=10, mB=30;
+            const cW=W-mL-mR, cH=H-mT-mB;
+            const yMin=21, yMax=32;
+            const toY = h => mT + ((h-yMin)/(yMax-yMin))*cH;
+            const bW=10;
+            const cx2 = i => mL + (i+0.5)*(cW/s7.length);
+            const yLabels = {21:'9pm',22:'10pm',23:'11pm',24:'12am',26:'2am',28:'4am',30:'6am',32:'8am'};
+
+            // Normalize time to continuous scale (hours past noon, so 10pm=22, midnight=24, 6am=30)
+            const norm = h => {
+              if (h == null) return null;
+              // h is decimal hours in local time. If < 12 (morning), add 24
+              return h < 12 ? h + 24 : h;
+            };
+
+            // Parse timestamp to decimal hours
+            const tsToH = ts => {
+              if (!ts) return null;
+              const d = new Date(ts);
+              return d.getHours() + d.getMinutes()/60;
+            };
+
+            return (
+              <>
+                {/* 7-night arc gauges */}
+                <div style={{...card, marginBottom:10}}>
+                  <div style={{fontSize:9,color:K.inkFaint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:14}}>
+                    7-night averages
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4}}>
+                    <Arc value={avgSleep!=null?+avgSleep.toFixed(1):null} goal={goals.avgSleepHrs||7.5} max={10}
+                      color={K.teal} unit="h" label="Total"
+                      extra={<span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:20,
+                        color:avgSleep>=(goals.avgSleepHrs||7.5)?"#1a6e50":"#a03020",
+                        background:avgSleep>=(goals.avgSleepHrs||7.5)?"#edf7f3":"#faf0ee"}}>
+                        {avgSleep!=null?`${avgSleep.toFixed(1)}h avg`:"—"}
+                      </span>}/>
+                    <Arc value={avgDeepPct!=null?Math.round(avgDeepPct):null} goal={20} max={35}
+                      color="#2563a8" unit="%" label="Deep"
+                      extra={<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,
+                        color:avgDeepPct>=13?"#1a6e50":"#a03020",
+                        background:avgDeepPct>=13?"#edf7f3":"#faf0ee",fontWeight:600}}>
+                        {avgDeepPct!=null?`${Math.round(avgDeepPct)}% avg`:"—"}
+                      </span>}/>
+                    <Arc value={avgRemPct!=null?Math.round(avgRemPct):null} goal={20} max={30}
+                      color="#6e3fa8" unit="%" label="REM"
+                      extra={<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,
+                        color:avgRemPct>=20?"#1a6e50":"#a03020",
+                        background:avgRemPct>=20?"#edf7f3":"#faf0ee",fontWeight:600}}>
+                        {avgRemPct!=null?`${Math.round(avgRemPct)}% avg`:"—"}
+                      </span>}/>
+                    <Arc value={avgSpo2!=null?Math.round(avgSpo2):null} goal={96} max={100}
+                      color={K.gold} unit="%" label="SpO₂"
+                      extra={<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,
+                        color:avgSpo2>=96?"#1a6e50":"#854F0B",
+                        background:avgSpo2>=96?"#edf7f3":"#fef3e2",fontWeight:600}}>
+                        {avgSpo2!=null?`${Math.round(avgSpo2)}%`:"—"}
+                      </span>}/>
+                  </div>
+                </div>
+
+                {/* Sleep window chart */}
+                <div style={{...card, marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                    <div style={{fontSize:9,color:K.inkFaint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700}}>Sleep window</div>
+                    {avgScore!=null && (
+                      <span style={{fontSize:12,fontWeight:600,color:scoreColor(Math.round(avgScore))}}>
+                        avg score {Math.round(avgScore)}
+                        {prevScore!=null && <span style={{fontSize:10,color:K.inkFaint,fontWeight:400,marginLeft:6}}>
+                          {Math.round(avgScore)>Math.round(prevScore)?"↑":"↓"} vs prior week
+                        </span>}
+                      </span>
                     )}
                   </div>
-                  {lastSleep.sleep_score!=null && (
-                    <div style={{ textAlign:"center" }}>
-                      <div style={{ fontSize:44, fontWeight:800, color:lastSleep.sleep_score>=75?K.teal:lastSleep.sleep_score>=60?K.yellow:K.red, lineHeight:1, letterSpacing:"-1px" }}>
-                        {lastSleep.sleep_score}
-                      </div>
-                      <div style={{ fontSize:9, color:K.inkFaint, marginTop:2 }}>SLEEP SCORE</div>
-                      <div style={{ marginTop:4 }}>
-                        <TrendPill current={lastSleep.sleep_score} previous={prevSleep?.sleep_score} higherIsBetter={true}/>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* Arc gauges */}
-                <div style={{ display:"flex", justifyContent:"space-around" }}>
-                  <ArcGauge value={lastSleep.sleep_hrs} goal={goals.avgSleepHrs} max={10}
-                    size={100} color={K.teal} unit="h" label="Total"
-                    trackColor="#e0ede9"/>
-                  <ArcGauge value={lastSleep.deep_hrs} goal={+(lastSleep.sleep_hrs*0.18).toFixed(1)} max={3}
-                    size={100} color={K.blue} unit="h" label="Deep"
-                    trackColor="#dce8f5"/>
-                  <ArcGauge value={lastSleep.rem_hrs} goal={+(lastSleep.sleep_hrs*0.21).toFixed(1)} max={3}
-                    size={100} color="#7c52c8" unit="h" label="REM"
-                    trackColor="#ede8f8"/>
-                  <ArcGauge value={lastSleep.avg_spo2} goal={96} max={100}
-                    size={100} color={lastSleep.avg_spo2>=95?K.teal:K.yellow} unit="%" label="SpO₂"
-                    trackColor="#e0ede9"/>
-                </div>
-              </div>
+                  <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{display:"block"}}>
+                    {/* Grid lines */}
+                    {[21,22,23,24,26,28,30,32].map(h => (
+                      <g key={h}>
+                        <line x1={mL} x2={W-mR} y1={toY(h)} y2={toY(h)}
+                          stroke={h===24?"#d8d0c6":"#ede8e0"} strokeWidth={h===24?1:0.5}/>
+                        {yLabels[h] && (
+                          <text x={mL-5} y={toY(h)+3.5} textAnchor="end"
+                            style={{fontSize:8,fill:h===24?"#b0a496":"#ccc5bb",fontFamily:"system-ui"}}>
+                            {yLabels[h]}
+                          </text>
+                        )}
+                      </g>
+                    ))}
 
-              {/* Stage bar */}
-              {(lastSleep.deep_hrs||lastSleep.rem_hrs||lastSleep.light_hrs) && (
-                <div style={card}>
-                  <div style={{ ...sectionLabel, marginBottom:10 }}>Stage breakdown</div>
-                  <div style={{ display:"flex", height:10, borderRadius:5, overflow:"hidden", gap:1, marginBottom:10 }}>
-                    {lastSleep.deep_hrs  && <div style={{ flex:lastSleep.deep_hrs,  background:K.blue, opacity:0.85 }}/>}
-                    {lastSleep.rem_hrs   && <div style={{ flex:lastSleep.rem_hrs,   background:"#7c52c8", opacity:0.85 }}/>}
-                    {lastSleep.light_hrs && <div style={{ flex:lastSleep.light_hrs, background:K.border }}/>}
-                  </div>
-                  <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
-                    {[["Deep",K.blue,lastSleep.deep_hrs,0.13,0.23],["REM","#7c52c8",lastSleep.rem_hrs,0.20,0.25],["Light",K.inkFaint,lastSleep.light_hrs,null,null]].map(([l,c,h,lo,hi])=>h&&(
-                      <div key={l} style={{ display:"flex", alignItems:"center", gap:5 }}>
-                        <div style={{ width:8, height:8, borderRadius:2, background:c }}/>
-                        <span style={{ fontSize:11, color:K.inkMid, fontWeight:500 }}>
-                          {l} {h}h · {Math.round(h/lastSleep.sleep_hrs*100)}%
-                          {lo&&hi&&<span style={{ color: h/lastSleep.sleep_hrs>=lo&&h/lastSleep.sleep_hrs<=hi ? K.teal : K.yellow,
-                            marginLeft:4, fontSize:10 }}>
-                            {h/lastSleep.sleep_hrs>=lo&&h/lastSleep.sleep_hrs<=hi ? "✓" : "optimal "+Math.round(lo*100)+"–"+Math.round(hi*100)+"%"}
-                          </span>}
-                        </span>
-                      </div>
+                    {/* Target lines */}
+                    {[[22.5,K.gold],[30.5,K.teal]].map(([h,col],i) => (
+                      <line key={i} x1={mL} x2={W-mR} y1={toY(h)} y2={toY(h)}
+                        stroke={col} strokeWidth="0.8" strokeDasharray="4,3" opacity="0.5"/>
+                    ))}
+
+                    {/* Bars */}
+                    {s7.map((d,i) => {
+                      // Parse bedtime/sleep/wake from timestamps or fallback to sleep_hrs
+                      let bedH = d.sleep_start ? norm(tsToH(d.sleep_start)) : null;
+                      let wkH  = d.sleep_end   ? norm(tsToH(d.sleep_end)+24) : null;
+                      // Fallback: use sleep_hrs to estimate
+                      if (!bedH) bedH = 23;
+                      if (!wkH)  wkH  = bedH + (d.sleep_hrs||8);
+                      const slpH = bedH + 0.25; // assume ~15min to fall asleep
+                      const x = cx2(i);
+                      const yBed = toY(bedH);
+                      const ySlp = toY(slpH);
+                      const yWk  = toY(wkH);
+                      return (
+                        <g key={i}>
+                          <rect x={x-bW/2} y={ySlp} width={bW}
+                            height={Math.max(3,yWk-ySlp)}
+                            fill="#2563a8" rx="5"/>
+                          <circle cx={x} cy={yBed} r="2.5" fill="#b5cee8"/>
+                          <circle cx={x} cy={yWk}  r="2.5" fill="#b5cee8"/>
+                          <text x={x} y={H-14} textAnchor="middle"
+                            style={{fontSize:9,fill:"#a89e92",fontFamily:"system-ui",fontWeight:600}}>
+                            {d.date?.slice(5)}
+                          </text>
+                          {d.sleep_score && (
+                            <text x={x} y={H-3} textAnchor="middle"
+                              style={{fontSize:9,fill:scoreColor(d.sleep_score),fontFamily:"system-ui",fontWeight:700}}>
+                              {d.sleep_score}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  <div style={{display:"flex",gap:14,marginTop:10,flexWrap:"wrap"}}>
+                    {[["#2563a8","Asleep"],["#b5cee8","In bed / wake"]].map(([col,lbl])=>(
+                      <span key={lbl} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:K.inkFaint}}>
+                        <span style={{width:8,height:8,borderRadius:2,background:col,display:"inline-block"}}/>
+                        {lbl}
+                      </span>
+                    ))}
+                    {[[K.gold,"Target 10:30pm"],[K.teal,"Target 6:30am"]].map(([col,lbl])=>(
+                      <span key={lbl} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:K.inkFaint}}>
+                        <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke={col} strokeWidth="1.5" strokeDasharray="3,2"/></svg>
+                        {lbl}
+                      </span>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {/* Vitals */}
-              {(lastSleep.avg_hr_sleep||lastSleep.avg_respiration||lastSleep.avg_spo2) && (
-                <div style={{ ...card, display:"flex", gap:20, flexWrap:"wrap" }}>
-                  {lastSleep.avg_hr_sleep && (
-                    <div>
-                      <div style={{ ...sectionLabel, marginBottom:4 }}>HR during sleep</div>
-                      <span style={{ fontSize:24, fontWeight:800, color:K.ink }}>{Math.round(lastSleep.avg_hr_sleep)}</span>
-                      <span style={{ fontSize:12, color:K.inkFaint, marginLeft:3 }}>bpm</span>
-                    </div>
-                  )}
-                  {lastSleep.avg_respiration && (
-                    <div>
-                      <div style={{ ...sectionLabel, marginBottom:4 }}>Respiration</div>
-                      <span style={{ fontSize:24, fontWeight:800, color:K.ink }}>{lastSleep.avg_respiration}</span>
-                      <span style={{ fontSize:12, color:K.inkFaint, marginLeft:3 }}>br/min</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 7-night trend */}
-              {sleepDays.length>2 && (
+                {/* Correlations */}
                 <div style={card}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                    <div style={sectionLabel}>Sleep score · 7 nights</div>
-                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                      {avgSleepScore && <span style={{ fontSize:13, fontWeight:700, color:avgSleepScore>=75?K.teal:K.yellow }}>avg {avgSleepScore}</span>}
-                      <TrendPill current={avgSleepScore} previous={prevSleepScore} higherIsBetter={true}/>
-                    </div>
+                  <div style={{fontSize:9,color:K.inkFaint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:12}}>
+                    What moved the needle
                   </div>
-                  <TrendLine data={[...sleepDays.slice(0,7)].reverse().map(d=>d.sleep_score||0)}
-                    color={K.teal} height={50} goalLine={goals.sleepScore}/>
+                  {(() => {
+                    const corrs = [];
+                    const withStress = s7.filter(d=>d.stress_avg&&d.sleep_score);
+                    const hiStress = withStress.filter(d=>d.stress_avg>50);
+                    const loStress = withStress.filter(d=>d.stress_avg<=50);
+                    const avgHi = hiStress.length ? Math.round(hiStress.reduce((s,d)=>s+d.sleep_score,0)/hiStress.length) : null;
+                    const avgLo = loStress.length ? Math.round(loStress.reduce((s,d)=>s+d.sleep_score,0)/loStress.length) : null;
+                    if (avgHi && avgLo && avgLo-avgHi > 5) {
+                      corrs.push({col:K.red,bg:"#faf0ee",label:"High stress → worse sleep",
+                        note:`High-stress nights averaged ${avgHi}, low-stress nights averaged ${avgLo}.`});
+                    }
+                    const withRem = s7.filter(d=>d.rem_hrs&&d.sleep_hrs&&d.bed_time);
+                    const lateNights = s7.filter(d=>d.sleep_start && tsToH(d.sleep_start)>23);
+                    const earlyNights = s7.filter(d=>d.sleep_start && tsToH(d.sleep_start)<=23);
+                    if (lateNights.length && earlyNights.length) {
+                      const lateRem = lateNights.filter(d=>d.rem_hrs&&d.sleep_hrs).reduce((s,d)=>s+d.rem_hrs/d.sleep_hrs*100,0)/lateNights.length;
+                      const earlyRem = earlyNights.filter(d=>d.rem_hrs&&d.sleep_hrs).reduce((s,d)=>s+d.rem_hrs/d.sleep_hrs*100,0)/earlyNights.length;
+                      if (earlyRem-lateRem > 2) {
+                        corrs.push({col:K.red,bg:"#faf0ee",label:"Late bedtime → less REM",
+                          note:`Before 11pm: ${Math.round(earlyRem)}% REM avg. After 11pm: ${Math.round(lateRem)}% REM avg.`});
+                      }
+                    }
+                    // Generic insights if no data for above
+                    if (corrs.length===0) {
+                      corrs.push({col:"#6e3fa8",bg:"#f5f0fa",label:"REM below optimal (20–25%)",
+                        note:"Try going to bed 30 min earlier — REM peaks in the second half of the night."});
+                      corrs.push({col:K.gold,bg:"#fef3e2",label:"Bedtime consistency matters",
+                        note:"A consistent anchor time, even weekends, is higher leverage than total duration."});
+                    }
+                    return corrs.map((c,i)=>(
+                      <div key={i} style={{display:"flex",gap:12,padding:"10px 0",
+                        borderBottom:i<corrs.length-1?`1px solid ${K.border}`:"none",alignItems:"flex-start"}}>
+                        <div style={{width:20,height:20,borderRadius:"50%",background:c.bg,
+                          display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                          <span style={{fontSize:10,fontWeight:700,color:c.col}}>→</span>
+                        </div>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:500,color:K.ink,marginBottom:2}}>{c.label}</div>
+                          <div style={{fontSize:11,color:K.inkFaint,lineHeight:1.5}}>{c.note}</div>
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
-              )}
 
-              {/* Nightly log */}
-              <div style={card}>
-                <div style={{ ...sectionLabel, marginBottom:10 }}>Nightly log</div>
-                {sleepDays.slice(0,7).map((d,i)=>(
-                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10,
-                    padding:"8px 0", borderBottom:i<sleepDays.slice(0,7).length-1?`1px solid ${K.border}`:"none" }}>
-                    <div style={{ width:44, flexShrink:0, fontSize:11, fontWeight:600,
-                      color:i===0?domain.color:K.inkFaint }}>{d.date?.slice(5)}</div>
-                    <div style={{ flex:1, display:"flex", gap:10 }}>
-                      {d.sleep_hrs && <span style={{ fontSize:12, fontWeight:600, color:K.ink }}>{d.sleep_hrs}h</span>}
-                      {d.deep_hrs  && <span style={{ fontSize:11, color:K.blue }}>D {d.deep_hrs}h</span>}
-                      {d.rem_hrs   && <span style={{ fontSize:11, color:"#7c52c8" }}>R {d.rem_hrs}h</span>}
+                {/* Nightly log */}
+                {s7.length > 1 && (
+                  <div style={card}>
+                    <div style={{fontSize:9,color:K.inkFaint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>
+                      Nightly log
                     </div>
-                    <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                      {d.avg_spo2 && <span style={{ fontSize:10, color:K.inkFaint }}>SpO₂ {d.avg_spo2}%</span>}
-                      {d.sleep_score && (
-                        <span style={{ fontSize:15, fontWeight:800,
-                          color:d.sleep_score>=75?K.teal:d.sleep_score>=60?K.yellow:K.red }}>
-                          {d.sleep_score}
-                        </span>
-                      )}
+                    <div style={{display:"grid",gridTemplateColumns:"44px 1fr 36px 34px 34px 36px",
+                      fontSize:9,color:K.inkFaint,paddingBottom:6,borderBottom:`1px solid ${K.border}`,
+                      marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>
+                      <div>Date</div><div>Window</div><div>Hrs</div><div>Deep</div><div>REM</div><div>Score</div>
                     </div>
+                    {s7.map((d,i)=>(
+                      <div key={i} style={{display:"grid",gridTemplateColumns:"44px 1fr 36px 34px 34px 36px",
+                        padding:"7px 0",borderBottom:i<s7.length-1?`1px solid ${K.border}`:"none",
+                        alignItems:"center",fontSize:11,color:K.ink}}>
+                        <div style={{fontSize:10,color:i===0?K.teal:K.inkFaint,fontWeight:600}}>{d.date?.slice(5)}</div>
+                        <div style={{fontSize:10,color:K.inkFaint}}>
+                          {d.sleep_start?new Date(d.sleep_start).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}):"—"}
+                          {" – "}
+                          {d.sleep_end?new Date(d.sleep_end).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}):"—"}
+                        </div>
+                        <div style={{fontWeight:500}}>{d.sleep_hrs?d.sleep_hrs.toFixed(1)+"h":"—"}</div>
+                        <div style={{color:"#2563a8",fontSize:10}}>{d.deep_hrs&&d.sleep_hrs?Math.round(d.deep_hrs/d.sleep_hrs*100)+"%":"—"}</div>
+                        <div style={{color:d.rem_hrs&&d.sleep_hrs&&Math.round(d.rem_hrs/d.sleep_hrs*100)>=20?"#1a7a6e":"#a03020",fontSize:10}}>
+                          {d.rem_hrs&&d.sleep_hrs?Math.round(d.rem_hrs/d.sleep_hrs*100)+"%":"—"}
+                        </div>
+                        <div style={{fontWeight:600,color:scoreColor(d.sleep_score)}}>{d.sleep_score||"—"}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </>
-          )}
-        </>
+                )}
+              </>
+            );
+          })()}
+        </div>
       )}
 
-      {/* ── HEALTH ───────────────────────────────────────────────────────── */}
       {tab==="health" && (
         <>
           <GoalEditor goals={goals} onChange={saveGoals} fields={[
