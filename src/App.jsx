@@ -4466,7 +4466,7 @@ function BodyDomainView({ domain, onUpdate, onBack }) {
                         background:avgSleep>=(goals.avgSleepHrs||7.5)?"#edf7f3":"#faf0ee"}}>
                         {avgSleep!=null?`${avgSleep.toFixed(1)}h avg`:"—"}
                       </span>}/>
-                    <Arc value={avgDeepPct!=null?Math.round(avgDeepPct):null} goal={20} max={35}
+                    <Arc value={avgDeepPct!=null?Math.round(avgDeepPct):null} goal={13} max={30}
                       color="#2563a8" unit="%" label="Deep"
                       extra={<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,
                         color:avgDeepPct>=13?"#1a6e50":"#a03020",
