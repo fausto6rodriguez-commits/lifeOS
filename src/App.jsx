@@ -4172,6 +4172,7 @@ function BodyDomainView({ domain, onUpdate, onBack }) {
 
   const loadData = async () => {
     setLoading(true);
+    setSyncLog(null); // clear any previous sync error
     try {
       const headers = { "apikey": SUPA_KEY, "Authorization": `Bearer ${SUPA_KEY}` };
       const [d, a] = await Promise.all([
@@ -4326,13 +4327,19 @@ function BodyDomainView({ domain, onUpdate, onBack }) {
       {syncLog && (
         <div style={{ margin:"0 16px 8px", padding:"10px 12px", borderRadius:8,
           background: syncLog.ok ? "#f0faf4" : "#fdf3f0",
-          border:`1px solid ${syncLog.ok?"#b8ddd0":"#f0c0b0"}` }}>
-          <div style={{ fontSize:11, fontWeight:600, color:syncLog.ok?K.teal:K.red, marginBottom:4 }}>
-            {syncLog.ok ? `✓ Synced: ${syncLog.summary} in ${syncLog.duration}` : `✗ ${syncLog.error}`}
+          border:`1px solid ${syncLog.ok?"#b8ddd0":"#f0c0b0"}`,
+          display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+          <div>
+            <div style={{ fontSize:11, fontWeight:600, color:syncLog.ok?K.teal:K.red, marginBottom:4 }}>
+              {syncLog.ok ? `✓ Synced: ${syncLog.summary} in ${syncLog.duration}` : `✗ ${syncLog.error}`}
+            </div>
+            {syncLog.log?.slice(-4).map((l,i) => (
+              <div key={i} style={{ fontSize:10, color:K.inkFaint, fontFamily:"'SF Mono',monospace" }}>{l}</div>
+            ))}
           </div>
-          {syncLog.log?.slice(-4).map((l,i) => (
-            <div key={i} style={{ fontSize:10, color:K.inkFaint, fontFamily:"'SF Mono',monospace" }}>{l}</div>
-          ))}
+          <button onClick={()=>setSyncLog(null)}
+            style={{ background:"transparent", border:"none", color:K.inkFaint,
+              cursor:"pointer", fontSize:16, padding:"0 0 0 8px", flexShrink:0 }}>×</button>
         </div>
       )}
 
